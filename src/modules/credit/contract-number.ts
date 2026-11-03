@@ -20,3 +20,4 @@ export function generateContractNumber(sequence = 1, customDate = new Date()): s
 export function generateIdempotencyKey(): string {
   return crypto.randomUUID();
 }
+

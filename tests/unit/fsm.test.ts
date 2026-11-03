@@ -88,3 +88,4 @@ describe("Credit Contract State Machine (FSM)", () => {
     expect(t.reason).toBe("Perbaikan slip gaji");
   });
 });
+

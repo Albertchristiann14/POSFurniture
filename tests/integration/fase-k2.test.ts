@@ -445,3 +445,4 @@ describe("Fase K2: Pengajuan Kredit, Approval Berjenjang, Kontrak PDF & Pembayar
     expect(appRepo.stockReservations[0].referenceId).toBe(contract.id);
   });
 });
+

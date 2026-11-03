@@ -183,3 +183,4 @@ export function generateContractDocument(data: ContractGenerationData): Generate
     sha256Hash,
   };
 }
+
