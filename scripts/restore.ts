@@ -46,3 +46,4 @@ export async function decryptAndVerifyBackup(
 
   return decryptedBuffer.toString("utf8");
 }
+

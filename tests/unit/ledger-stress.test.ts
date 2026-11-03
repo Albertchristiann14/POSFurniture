@@ -201,3 +201,4 @@ describe("Fase K6: Hardening - Property-Based & Ledger Invariant Stress Test", (
     expect(ledgerRepo.batches.length).toBeGreaterThanOrEqual(100);
   });
 });
+

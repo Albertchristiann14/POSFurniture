@@ -18,3 +18,4 @@ export function getProductionSecurityHeaders(): Record<string, string> {
     ].join("; "),
   };
 }
+

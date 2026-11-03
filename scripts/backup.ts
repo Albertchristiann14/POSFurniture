@@ -60,3 +60,4 @@ export async function createEncryptedBackup(
 
   return { backupFile: filePath, sha256Checksum };
 }
+

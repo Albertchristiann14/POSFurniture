@@ -159,3 +159,4 @@ Setiap file backup otomatis dienkripsi dengan **AES-256-GCM** dan menghasilkan m
 - **Simulasi API**: `POST https://pos.krevia.com/api/credit/simulate` (Validasi Zod & Kalkulasi integer).
 - **Log Terstruktur**: Log aplikasi menggunakan JSON terformat dengan `correlationId` unik dan masking otomatis untuk data kredensial/PIN.
 - **Webhook Endpoint**: `POST https://pos.krevia.com/api/webhooks/payment/midtrans` (Verifikasi signature SHA-512 wajib).
+
