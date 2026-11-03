@@ -129,3 +129,4 @@ describe("Fase 7: POS Shift Management & Cash Drawer Reconciliation", () => {
     expect(closedSurplus.discrepancy).toBe(15000n);
   });
 });
+

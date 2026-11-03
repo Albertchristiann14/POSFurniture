@@ -79,3 +79,4 @@ describe("Fase 7: POS Thermal Receipt & Delivery Note Generator", () => {
     expect(deliveryNote).toContain("Penerima/Pelanggan");
   });
 });
+

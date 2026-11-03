@@ -100,3 +100,4 @@ describe("Fase 7: Furniture Delivery Service & State Progression", () => {
     ).rejects.toThrow("Konfirmasi serah terima hanya valid saat pengiriman OUT_FOR_DELIVERY");
   });
 });
+

@@ -192,3 +192,4 @@ export class PosReceiptService {
     return lines.join("\n");
   }
 }
+
