@@ -1,0 +1,735 @@
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+// ==========================================
+// ENUMS
+// ==========================================
+
+enum TenantType {
+  FURNITURE
+  RETAIL
+  FNB
+}
+
+enum RoleName {
+  OWNER
+  MANAGER
+  CASHIER
+  SALES
+  WAREHOUSE
+  COLLECTOR
+}
+
+enum ProductKind {
+  READY_STOCK
+  CUSTOM_INDENT
+}
+
+enum OrderStatus {
+  DRAFT
+  PLACED
+  ACCEPTED
+  PROCESSING
+  READY_TO_DELIVER
+  DELIVERING
+  COMPLETED
+  CANCELLED
+  VOIDED
+}
+
+enum FulfillmentStatus {
+  NOT_REQUIRED
+  WAITING_PRODUCTION
+  IN_PRODUCTION
+  READY_IN_WAREHOUSE
+  SCHEDULED_DELIVERY
+  OUT_FOR_DELIVERY
+  DELIVERED
+  FAILED_DELIVERY
+}
+
+enum PaymentMethod {
+  CASH
+  QRIS_DYNAMIC
+  BANK_TRANSFER_MANUAL
+  SPLIT_PAYMENT
+  INTERNAL_CREDIT
+}
+
+enum PaymentStatus {
+  CREATED
+  PENDING
+  PAID
+  EXPIRED
+  FAILED
+  REFUNDED
+  NEEDS_RECONCILIATION
+}
+
+enum CreditStatus {
+  DRAFT
+  DIAJUKAN
+  DISETUJUI
+  DITOLAK
+  AKTIF
+  LUNAS
+  MACET
+  DIBATALKAN
+}
+
+enum InstallmentStatus {
+  BELUM_JATUH_TEMPO
+  JATUH_TEMPO
+  TERLAMBAT
+  LUNAS_SEBAGIAN
+  LUNAS
+}
+
+enum MarginMethod {
+  FLAT_MONTHLY
+  FLAT_TOTAL
+  EFFECTIVE_ANNUITY
+  ZERO_MARGIN
+}
+
+enum PenaltyType {
+  DAILY_PERCENTAGE
+  DAILY_FIXED_AMOUNT
+  ONE_TIME_FIXED
+}
+
+enum LedgerAccountCode {
+  KAS_BANK                    // 1010
+  PIUTANG_POKOK               // 1110
+  PIUTANG_DENDA               // 1120
+  TITIPAN_PELANGGAN           // 2010
+  MARGIN_DITANGGUHKAN         // 2110
+  PENDAPATAN_PENJUALAN        // 4010
+  PENDAPATAN_MARGIN           // 4110
+  PENDAPATAN_ADMIN            // 4120
+  PENDAPATAN_DENDA            // 4130
+  BEBAN_HAPUS_PIUTANG         // 6010
+  BEBAN_DISKON_PELUNASAN_AWAL // 6020
+}
+
+enum LedgerEntryDirection {
+  DEBIT
+  CREDIT
+}
+
+// ==========================================
+// TENANT & CORE AUTH
+// ==========================================
+
+model Tenant {
+  id              String         @id @default(uuid())
+  slug            String         @unique
+  name            String
+  businessType    TenantType     @default(FURNITURE)
+  isActive        Boolean        @default(true)
+  settings        Json           // Global configs (tax, rounding, grace period, invoice prefix)
+  createdAt       DateTime       @default(now())
+  updatedAt       DateTime       @updatedAt
+
+  outlets         Outlet[]
+  users           User[]
+  products        Product[]
+  categories      Category[]
+  orders          Order[]
+  payments        Payment[]
+  creditCustomers CreditCustomer[]
+  creditSchemes   CreditScheme[]
+  creditContracts CreditContract[]
+  ledgerBatches   CreditLedgerBatch[]
+  auditLogs       AuditLog[]
+  idempotencyKeys IdempotencyKey[]
+
+  @@map("tenants")
+}
+
+model Outlet {
+  id          String   @id @default(uuid())
+  tenantId    String
+  name        String
+  address     String
+  phone       String?
+  isActive    Boolean  @default(true)
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  tenant      Tenant   @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  shifts      Shift[]
+  orders      Order[]
+  inventories Inventory[]
+
+  @@index([tenantId])
+  @@map("outlets")
+}
+
+model User {
+  id              String       @id @default(uuid())
+  tenantId        String
+  username        String
+  email           String?
+  passwordHash    String
+  pinHash         String?      // PIN 6 digit kasir (bcryptjs)
+  fullName        String
+  role            RoleName     @default(CASHIER)
+  maxCreditApprovalLimit BigInt @default(0) // Batas limit nominal approval kredit
+  isActive        Boolean      @default(true)
+  createdAt       DateTime     @default(now())
+  updatedAt       DateTime     @updatedAt
+
+  tenant          Tenant       @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  shifts          Shift[]
+  ordersCreated   Order[]      @relation("OrderCreatedBy")
+  approvedContracts CreditContract[] @relation("ContractApprovedBy")
+  salesContracts  CreditContract[] @relation("ContractSalesAgent")
+  auditLogs       AuditLog[]
+
+  @@unique([tenantId, username])
+  @@index([tenantId, role])
+  @@map("users")
+}
+
+// ==========================================
+// INVENTORY & FURNITURE CATALOG
+// ==========================================
+
+model Category {
+  id          String    @id @default(uuid())
+  tenantId    String
+  name        String
+  slug        String
+  createdAt   DateTime  @default(now())
+
+  tenant      Tenant    @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  products    Product[]
+
+  @@unique([tenantId, slug])
+  @@map("categories")
+}
+
+model Product {
+  id              String       @id @default(uuid())
+  tenantId        String
+  categoryId      String?
+  name            String
+  sku             String
+  description     String?
+  kind            ProductKind  @default(READY_STOCK)
+  isCreditEligible Boolean     @default(true)
+  warrantyMonths  Int          @default(0)
+  dimensions      String?      // P x L x T (cm)
+  material        String?      // misal: Kayu Jati, Fabric Sofa
+  color           String?
+  qrShowroomCode  String       @unique // Token QR acak unik untuk tag display toko
+  createdAt       DateTime     @default(now())
+  updatedAt       DateTime     @updatedAt
+
+  tenant          Tenant       @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  category        Category?    @relation(fields: [categoryId], references: [id])
+  variants        ProductVariant[]
+  orderItems      OrderItem[]
+
+  @@unique([tenantId, sku])
+  @@index([tenantId, isCreditEligible])
+  @@map("products")
+}
+
+model ProductVariant {
+  id          String   @id @default(uuid())
+  productId   String
+  skuVariant  String
+  name        String   // misal: "3 Seater Brown Velvet"
+  basePrice   BigInt   // Rupiah murni (integer)
+  costPrice   BigInt   @default(0)
+  createdAt   DateTime @default(now())
+
+  product     Product  @relation(fields: [productId], references: [id], onDelete: Cascade)
+  inventories Inventory[]
+  orderItems  OrderItem[]
+
+  @@unique([productId, skuVariant])
+  @@map("product_variants")
+}
+
+model Inventory {
+  id                String   @id @default(uuid())
+  outletId          String
+  variantId         String
+  quantityAvailable Int      @default(0)
+  quantityReserved  Int      @default(0) // Ditahan untuk pesanan/kredit belum kirim
+  reorderThreshold  Int      @default(2)
+
+  outlet            Outlet   @relation(fields: [outletId], references: [id], onDelete: Cascade)
+  variant           ProductVariant @relation(fields: [variantId], references: [id], onDelete: Cascade)
+  stockMovements    StockMovement[]
+
+  @@unique([outletId, variantId])
+  @@map("inventories")
+}
+
+model StockMovement {
+  id            String   @id @default(uuid())
+  inventoryId   String
+  changeAmount  Int      // positif atau negatif
+  reason        String   // "SALE", "CREDIT_ALLOCATION", "RETURN", "RESTOCK", "CORRECTION"
+  referenceId   String?  // ID order atau kontrak
+  createdAt     DateTime @default(now())
+
+  inventory     Inventory @relation(fields: [inventoryId], references: [id], onDelete: Cascade)
+
+  @@index([inventoryId])
+  @@map("stock_movements")
+}
+
+// ==========================================
+// ORDERS & WAREHOUSE / DELIVERY
+// ==========================================
+
+model Order {
+  id              String            @id @default(uuid())
+  tenantId        String
+  outletId        String
+  orderNumber     String            // Format: ORD-YYMMDD-XXXX
+  createdById     String
+  orderStatus     OrderStatus       @default(DRAFT)
+  fulfillment     FulfillmentStatus @default(NOT_REQUIRED)
+  
+  // Perhitungan Nilai (Rupiah murni - Snapshot)
+  subtotal        BigInt
+  discountAmount  BigInt            @default(0)
+  taxAmount       BigInt            @default(0)
+  deliveryFee     BigInt            @default(0)
+  totalAmount     BigInt
+  paidAmount      BigInt            @default(0)
+  
+  notes           String?
+  createdAt       DateTime          @default(now())
+  updatedAt       DateTime          @updatedAt
+
+  tenant          Tenant            @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  outlet          Outlet            @relation(fields: [outletId], references: [id])
+  createdBy       User              @relation("OrderCreatedBy", fields: [createdById], references: [id])
+  items           OrderItem[]
+  payments        Payment[]
+  deliveryOrder   DeliveryOrder?
+  creditContract  CreditContract?
+
+  @@unique([tenantId, orderNumber])
+  @@index([tenantId, orderStatus])
+  @@map("orders")
+}
+
+model OrderItem {
+  id              String   @id @default(uuid())
+  orderId         String
+  productId       String
+  variantId       String
+  productName     String   // Snapshot nama produk
+  variantName     String   // Snapshot varian
+  unitPrice       BigInt   // Snapshot harga jual
+  unitCost        BigInt   // Snapshot HPP
+  quantity        Int
+  subtotal        BigInt
+  customSpecs     Json?    // Spesifikasi custom indent: dimensi khusus, kain khusus, dll.
+  warrantyExpiry  DateTime?
+
+  order           Order    @relation(fields: [orderId], references: [id], onDelete: Cascade)
+  product         Product  @relation(fields: [productId], references: [id])
+  variant         ProductVariant @relation(fields: [variantId], references: [id])
+
+  @@map("order_items")
+}
+
+model DeliveryOrder {
+  id              String   @id @default(uuid())
+  orderId         String   @unique
+  recipientName   String
+  recipientPhone  String
+  shippingAddress String
+  geoCoordinates  String?
+  scheduledDate   DateTime?
+  driverName      String?
+  licensePlate    String?
+  receivedAt      DateTime?
+  proofPhotoUrl   String?  // Foto bukti terima
+  digitalSignatureUrl String? // Tanda tangan digital
+  notes           String?
+  updatedAt       DateTime @updatedAt
+
+  order           Order    @relation(fields: [orderId], references: [id], onDelete: Cascade)
+
+  @@map("delivery_orders")
+}
+
+// ==========================================
+// PAYMENTS & GATEWAY INTEGRATION
+// ==========================================
+
+model Payment {
+  id                String        @id @default(uuid())
+  tenantId          String
+  orderId           String?
+  creditContractId  String?       // Bila pembayaran DP atau cicilan
+  paymentNumber     String        // PAY-YYMMDD-XXXX
+  method            PaymentMethod
+  status            PaymentStatus @default(CREATED)
+  amount            BigInt
+  cashGiven         BigInt?       // Pembayaran tunai
+  changeReturned    BigInt?       // Kembalian
+  
+  // Payment Gateway Snapshot
+  gatewayProvider   String?       // "MIDTRANS", "XENDIT", dll.
+  gatewayReference  String?       // ID transaksi dari gateway
+  qrisQrString      String?       // Payload QRIS dinamis
+  expiresAt         DateTime?
+  paidAt            DateTime?
+
+  idempotencyKey    String        @unique
+  createdAt         DateTime      @default(now())
+  updatedAt         DateTime      @updatedAt
+
+  tenant            Tenant        @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  order             Order?        @relation(fields: [orderId], references: [id])
+  creditContract    CreditContract? @relation(fields: [creditContractId], references: [id])
+  events            PaymentEvent[]
+  refunds           Refund[]
+
+  @@index([tenantId, status])
+  @@index([gatewayReference])
+  @@map("payments")
+}
+
+model PaymentEvent {
+  id              String   @id @default(uuid())
+  paymentId       String
+  eventId         String   // Unique event id dari gateway webhook
+  eventType       String
+  rawPayload      Json
+  isSignatureValid Boolean
+  createdAt       DateTime @default(now())
+
+  payment         Payment  @relation(fields: [paymentId], references: [id], onDelete: Cascade)
+
+  @@unique([paymentId, eventId])
+  @@map("payment_events")
+}
+
+model Refund {
+  id            String   @id @default(uuid())
+  paymentId     String
+  amount        BigInt
+  reason        String
+  approvedBy    String
+  createdAt     DateTime @default(now())
+
+  payment       Payment  @relation(fields: [paymentId], references: [id])
+
+  @@map("refunds")
+}
+
+// ==========================================
+// MODUL KREDIT INTERNAL: NASABAH & DOKUMEN
+// ==========================================
+
+model CreditCustomer {
+  id                  String   @id @default(uuid())
+  tenantId            String
+  
+  // Pencarian NIK aman via Blind Index (HMAC-SHA256)
+  nikBlindIndex       String
+  
+  // Data pribadi terenkripsi at-rest (AES-256-GCM)
+  encryptedNik        String
+  encryptedFullName   String
+  encryptedPhone      String
+  encryptedAddressKtp String
+  encryptedAddressDom String
+  
+  occupation          String?
+  monthlyIncome       BigInt   @default(0)
+  emergencyContact    Json?    // { name, relation, phone } terenkripsi
+  guarantor           Json?    // Penjamin (opsional)
+
+  // Riwayat & Scoring Internal
+  creditScoreInternal Int      @default(100) // 0 - 100 skor kalkulasi internal
+  creditLimit         BigInt   @default(15000000) // Plafon maksimal
+  activeDebtBalance   BigInt   @default(0) // Total sisa pokok berjalan
+  totalLateDays       Int      @default(0)
+  isBlacklisted       Boolean  @default(false)
+  
+  // Persetujuan Pemrosesan Data Pribadi (UU PDP)
+  pdpConsentGivenAt   DateTime @default(now())
+  pdpConsentIpAddress String?
+
+  createdAt           DateTime @default(now())
+  updatedAt           DateTime @updatedAt
+
+  tenant              Tenant   @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  documents           CustomerDocument[]
+  contracts           CreditContract[]
+
+  @@unique([tenantId, nikBlindIndex])
+  @@index([tenantId, creditScoreInternal])
+  @@map("credit_customers")
+}
+
+model CustomerDocument {
+  id            String   @id @default(uuid())
+  customerId    String
+  documentType  String   // "KTP", "SELFIE_KTP", "SLIP_GAJI", "KARTU_KELUARGA"
+  storageKey    String   // S3/MinIO key / local path
+  fileHashSha256 String  // Hash verifikasi integritas file
+  uploadedAt    DateTime @default(now())
+
+  customer      CreditCustomer @relation(fields: [customerId], references: [id], onDelete: Cascade)
+
+  @@map("customer_documents")
+}
+
+// ==========================================
+// MODUL KREDIT INTERNAL: SKEMA & KONTRAK
+// ==========================================
+
+model CreditScheme {
+  id              String       @id @default(uuid())
+  tenantId        String
+  name            String       // misal: "Cicilan Furniture 6-12 Bln Promo"
+  tenorMonths     Int          // Tenor durasi bulan
+  marginMethod    MarginMethod @default(FLAT_MONTHLY)
+  marginRateBps   Int          // Basis points (1% = 100 bps, misal 200 = 2% per bulan)
+  minDownPaymentPct Int        // Minimal DP % (misal 20 = 20%)
+  adminFeeAmount  BigInt       @default(0) // Biaya administrasi
+  
+  // Aturan Denda
+  penaltyType     PenaltyType  @default(DAILY_FIXED_AMOUNT)
+  penaltyRateBps  Int          @default(0) // Bila harian persen
+  penaltyFixedFee BigInt       @default(10000) // Bila denda flat per hari (Rp 10.000)
+  gracePeriodDays Int          @default(3) // Toleransi keterlambatan hari
+  maxPenaltyCapPct Int         @default(20) // Maksimal akumulasi denda % dari total cicilan
+  
+  isActive        Boolean      @default(true)
+  createdAt       DateTime     @default(now())
+
+  tenant          Tenant       @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  contracts       CreditContract[]
+
+  @@index([tenantId, isActive])
+  @@map("credit_schemes")
+}
+
+model CreditContract {
+  id                  String       @id @default(uuid())
+  tenantId            String
+  orderId             String       @unique
+  customerId          String
+  schemeId            String
+  contractNumber      String       // Format: KTR-YYMMDD-XXXX
+  salesId             String
+  approvedById        String?
+  
+  status              CreditStatus @default(DRAFT)
+  
+  // Nilai Finansial (Snapshot saat kontrak dibuat - Rupiah Integer)
+  principalTotal      BigInt       // Pokok pembiayaan (Harga Furniture - DP)
+  marginTotal         BigInt       // Total margin bunga selama tenor
+  adminFeeTotal       BigInt       // Biaya admin
+  downPaymentRequired BigInt       // DP wajib
+  downPaymentPaid     BigInt       @default(0)
+  monthlyInstallment  BigInt       // Angsuran per bulan (pokok + margin)
+  
+  // Snapshot Parameter Skema
+  schemeSnapshot      Json         // Seluruh parameter bunga, denda, grace period di-freeze
+  
+  // Dokumen Legalitas & Audit Integritas
+  contractPdfHash     String?      // SHA256 PDF kontrak final bertandatangan
+  contractPdfUrl      String?
+  signedByCustomerAt  DateTime?
+  approvedAt          DateTime?
+  activatedAt         DateTime?
+  completedAt         DateTime?
+  notes               String?
+  
+  createdAt           DateTime     @default(now())
+  updatedAt           DateTime     @updatedAt
+
+  tenant              Tenant       @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  order               Order        @relation(fields: [orderId], references: [id])
+  customer            CreditCustomer @relation(fields: [customerId], references: [id])
+  scheme              CreditScheme @relation(fields: [schemeId], references: [id])
+  salesAgent          User         @relation("ContractSalesAgent", fields: [salesId], references: [id])
+  approvedBy          User?        @relation("ContractApprovedBy", fields: [approvedById], references: [id])
+  
+  installments        CreditInstallmentSchedule[]
+  payments            Payment[]
+  allocations         CreditPaymentAllocation[]
+  ledgerBatches       CreditLedgerBatch[]
+
+  @@unique([tenantId, contractNumber])
+  @@index([tenantId, status])
+  @@map("credit_contracts")
+}
+
+model CreditInstallmentSchedule {
+  id                  String            @id @default(uuid())
+  contractId          String
+  installmentNumber   Int               // Angsuran ke-1, ke-2, dst.
+  dueDate             DateTime          // Tanggal jatuh tempo
+  
+  principalDue        BigInt            // Porsi pokok
+  marginDue           BigInt            // Porsi margin keuntungan
+  totalDue            BigInt            // Total pokok + margin
+  
+  // Status Bayar
+  principalPaid       BigInt            @default(0)
+  marginPaid          BigInt            @default(0)
+  penaltyAccrued      BigInt            @default(0) // Akumulasi denda aktif
+  penaltyPaid         BigInt            @default(0) // Denda yang sudah terbayar
+  
+  daysOverdue         Int               @default(0)
+  lastPenaltyCalcDate DateTime?         // Tanggal terakhir denda dihitung (anti double cron)
+  status              InstallmentStatus @default(BELUM_JATUH_TEMPO)
+  paidAt              DateTime?
+  
+  contract            CreditContract    @relation(fields: [contractId], references: [id], onDelete: Cascade)
+  allocations         CreditPaymentAllocation[]
+
+  @@unique([contractId, installmentNumber])
+  @@index([dueDate, status])
+  @@map("credit_installment_schedules")
+}
+
+model CreditPaymentAllocation {
+  id                  String   @id @default(uuid())
+  contractId          String
+  installmentId       String
+  paymentId           String?
+  allocatedPenalty    BigInt   @default(0)
+  allocatedMargin     BigInt   @default(0)
+  allocatedPrincipal  BigInt   @default(0)
+  totalAllocated      BigInt
+  createdAt           DateTime @default(now())
+
+  contract            CreditContract            @relation(fields: [contractId], references: [id])
+  installment         CreditInstallmentSchedule @relation(fields: [installmentId], references: [id])
+
+  @@map("credit_payment_allocations")
+}
+
+// ==========================================
+// MODUL KREDIT INTERNAL: APPEND-ONLY LEDGER
+// ==========================================
+
+model CreditLedgerBatch {
+  id              String   @id @default(uuid())
+  tenantId        String
+  contractId      String?
+  idempotencyKey  String   @unique
+  referenceEvent  String   // "CONTRACT_ACTIVATED", "INSTALLMENT_PAID", "PENALTY_ACCRUED", "EARLY_SETTLEMENT", "WRITEOFF"
+  description     String
+  createdById     String?
+  createdAt       DateTime @default(now())
+
+  tenant          Tenant   @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  contract        CreditContract? @relation(fields: [contractId], references: [id])
+  entries         CreditLedgerEntry[]
+
+  @@index([tenantId, referenceEvent])
+  @@map("credit_ledger_batches")
+}
+
+model CreditLedgerEntry {
+  id              String               @id @default(uuid())
+  batchId         String
+  accountCode     LedgerAccountCode
+  direction       LedgerEntryDirection // DEBIT atau CREDIT
+  amount          BigInt               // Selalu positif (integer rupiah)
+  createdAt       DateTime             @default(now())
+
+  batch           CreditLedgerBatch    @relation(fields: [batchId], references: [id], onDelete: Cascade)
+
+  @@index([accountCode])
+  @@index([batchId])
+  @@map("credit_ledger_entries")
+}
+
+// ==========================================
+// CASHIER SHIFT, AUDIT & IDEMPOTENCY
+// ==========================================
+
+model Shift {
+  id              String   @id @default(uuid())
+  outletId        String
+  userId          String
+  openedAt        DateTime @default(now())
+  closedAt        DateTime?
+  startCashAmount BigInt
+  endCashCalculated BigInt?
+  endCashActual   BigInt?
+  discrepancy     BigInt?
+  notes           String?
+
+  outlet          Outlet   @relation(fields: [outletId], references: [id])
+  user            User     @relation(fields: [userId], references: [id])
+  cashMovements   CashMovement[]
+
+  @@map("shifts")
+}
+
+model CashMovement {
+  id          String   @id @default(uuid())
+  shiftId     String
+  amount      BigInt   // positif uang masuk, negatif pengeluaran
+  reason      String   // "CASH_IN", "CASH_OUT", "EXPENSE"
+  createdAt   DateTime @default(now())
+
+  shift       Shift    @relation(fields: [shiftId], references: [id], onDelete: Cascade)
+
+  @@map("cash_movements")
+}
+
+model AuditLog {
+  id          String   @id @default(uuid())
+  tenantId    String
+  userId      String?
+  action      String   // "APPROVE_CREDIT", "VIEW_CUSTOMER_DOC", "WAIVE_PENALTY", "VOID_ORDER"
+  resource    String   // "CreditContract", "CustomerDocument", dll.
+  resourceId  String
+  payload     Json?
+  ipAddress   String?
+  userAgent   String?
+  createdAt   DateTime @default(now())
+
+  tenant      Tenant   @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  user        User?    @relation(fields: [userId], references: [id])
+
+  @@index([tenantId, action])
+  @@index([resource, resourceId])
+  @@map("audit_logs")
+}
+
+model IdempotencyKey {
+  id          String   @id @default(uuid())
+  tenantId    String
+  key         String
+  requestPath String
+  requestHash String
+  statusCode  Int
+  response    Json
+  expiresAt   DateTime
+  createdAt   DateTime @default(now())
+
+  tenant      Tenant   @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+
+  @@unique([tenantId, key])
+  @@index([expiresAt])
+  @@map("idempotency_keys")
+}
