@@ -129,3 +129,4 @@ function centerText(text: string, width: number): string {
   const rightPad = width - text.length - leftPad;
   return " ".repeat(leftPad) + text + " ".repeat(rightPad);
 }
+

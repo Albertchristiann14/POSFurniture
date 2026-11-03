@@ -141,3 +141,4 @@ describe("Allocation Engine (Algoritma Alokasi Pembayaran Cicilan)", () => {
     expect(payoff.netPayoffAmount).toBe(2230000n);
   });
 });
+
