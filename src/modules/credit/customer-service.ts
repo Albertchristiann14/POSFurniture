@@ -127,7 +127,7 @@ export class CreditCustomerService {
     private customerRepo: ICustomerRepository,
     private storageService: DocumentStorageService,
     private auditLogger: AuditLogger
-  ) {}
+  ) { }
 
   /**
    * Mendaftarkan pelanggan kredit baru dengan enkripsi PII dan Blind Index

@@ -302,3 +302,4 @@ export default function CreditSimulatorPage() {
     </main>
   );
 }
+

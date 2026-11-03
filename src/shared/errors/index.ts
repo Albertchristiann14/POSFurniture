@@ -52,3 +52,4 @@ export class InvalidDocumentError extends AppError {
     super(message, 422, "INVALID_DOCUMENT");
   }
 }
+

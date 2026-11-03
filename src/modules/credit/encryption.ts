@@ -115,3 +115,4 @@ export function maskName(fullName: string): string {
     })
     .join(" ");
 }
+

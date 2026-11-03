@@ -146,3 +146,4 @@ export class DocumentStorageService {
 }
 
 export const documentStorageService = new DocumentStorageService();
+
