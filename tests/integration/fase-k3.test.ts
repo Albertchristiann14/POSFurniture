@@ -275,3 +275,4 @@ describe("Fase K3: Ledger Double-Entry, Jadwal Cicilan & Job Harian Idempotent",
     expect(inst.penaltyAccrued).toBe(50000n); // Cap maksimal tercapai
   });
 });
+

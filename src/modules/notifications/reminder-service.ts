@@ -80,3 +80,4 @@ export class ReminderService {
     return Array.from(this.sentHistory);
   }
 }
+

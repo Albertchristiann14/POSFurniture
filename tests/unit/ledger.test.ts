@@ -149,3 +149,4 @@ describe("Double-Entry Append-Only Ledger Engine", () => {
     expect(saldoAkhir).toBe(0n);
   });
 });
+

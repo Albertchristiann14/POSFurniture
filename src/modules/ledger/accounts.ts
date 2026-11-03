@@ -102,3 +102,4 @@ export const CHART_OF_ACCOUNTS: Record<LedgerAccountCode, AccountDefinition> = {
     normalBalance: "DEBIT",
   },
 };
+
